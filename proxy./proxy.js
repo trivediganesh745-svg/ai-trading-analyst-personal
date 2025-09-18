@@ -1,45 +1,53 @@
 const express = require('express');
 const cors = require('cors');
-const { FyersApi } = require('fyers-api-v3');
 const http = require('http');
 const WebSocket = require('ws');
+const { FyersRestApi } = require('@fyers-api/rest');
+const { FyersSocketApi } = require('@fyers-api/websocket');
 
 const app = express();
 const port = process.env.PORT || 3000;
-const wsPort = 3001; // This is only for local testing, Render uses one port.
 
+// Load credentials from environment variables
 const FYERS_APP_ID = process.env.FYERS_APP_ID;
 const FYERS_SECRET_KEY = process.env.FYERS_SECRET_KEY;
 
 if (!FYERS_APP_ID || !FYERS_SECRET_KEY) {
-    console.error("FATAL: FYERS_APP_ID and FYERS_SECRET_KEY must be set.");
+    console.error("FATAL: FYERS_APP_ID and FYERS_SECRET_KEY must be set in the environment.");
     process.exit(1);
 }
 
-const fyers = new FyersApi();
-fyers.setAppId(FYERS_APP_ID);
-fyers.setSecretId(FYERS_SECRET_KEY);
+const fyersRest = new FyersRestApi();
+fyersRest.setAppId(FYERS_APP_ID);
+fyersRest.setSecretId(FYERS_SECRET_KEY);
 
 app.use(cors());
 app.use(express.json());
 
+// --- AUTHENTICATION ROUTES ---
 app.post('/get-login-url', (req, res) => {
     const { redirectUri } = req.body;
-    if (!redirectUri) return res.status(400).json({ error: 'redirectUri is required' });
-    fyers.setRedirectUrl(redirectUri);
-    const loginUrl = fyers.generateAuthCode();
+    if (!redirectUri) {
+        return res.status(400).json({ error: 'redirectUri is required' });
+    }
+    fyersRest.setRedirectUrl(redirectUri);
+    const loginUrl = fyersRest.generateAuthCode();
+    console.log('Generated Login URL:', loginUrl);
     res.json({ loginUrl });
 });
 
 app.post('/get-access-token', async (req, res) => {
     const { authCode, redirectUri } = req.body;
-    if (!authCode) return res.status(400).json({ error: 'authCode is required' });
-    fyers.setRedirectUrl(redirectUri);
+    if (!authCode) {
+        return res.status(400).json({ error: 'authCode is required' });
+    }
+    fyersRest.setRedirectUrl(redirectUri);
     try {
-        const response = await fyers.generate_access_token({
-            "secret_key": FYERS_SECRET_KEY,
-            "auth_code": authCode
+        const response = await fyersRest.generate_access_token({
+            secret_key: FYERS_SECRET_KEY,
+            auth_code: authCode
         });
+        console.log('Access Token Response:', response);
         res.json(response);
     } catch (error) {
         console.error('Error getting access token:', error);
@@ -51,47 +59,55 @@ app.post('/get-access-token', async (req, res) => {
 const server = http.createServer(app);
 
 // --- WEBSOCKET SERVER FOR MARKET DATA ---
-const wsServer = new WebSocket.Server({ server }); // Attach WebSocket server to the HTTP server
+const wsServer = new WebSocket.Server({ server });
 
 wsServer.on('connection', (ws) => {
     console.log('Client connected to WebSocket proxy');
     let fyersSocket = null;
 
     ws.on('message', (message) => {
-        const data = JSON.parse(message);
-        if (data.type === 'subscribe' && data.instrument && data.accessToken) {
-            if (fyersSocket) fyersSocket.close();
-            
-            fyersSocket = new FyersApi();
-            fyersSocket.setAccessToken(data.accessToken);
+        try {
+            const data = JSON.parse(message);
+            if (data.type === 'subscribe' && data.instrument && data.accessToken) {
+                console.log(`Subscribing to ${data.instrument}`);
+                
+                if (fyersSocket) fyersSocket.disconnect();
 
-            fyersSocket.on('connect', () => {
-                fyersSocket.subscribe([data.instrument]);
-                fyersSocket.get_market_depth([data.instrument]);
-            });
+                fyersSocket = new FyersSocketApi(data.accessToken);
+                fyersSocket.on('connect', () => {
+                    console.log('Connected to Fyers WebSocket');
+                    fyersSocket.subscribe([data.instrument]);
+                    fyersSocket.getMarketDepth([data.instrument]);
+                });
 
-            fyersSocket.on('message', (msg) => {
-                if(msg.ltp) {
-                    ws.send(JSON.stringify({ type: 'tick', data: { timestamp: msg.timestamp * 1000, price: msg.ltp, volume: msg.vol_traded_today } }));
-                }
-            });
+                fyersSocket.on('message', (msg) => {
+                    if (msg.ltp) {
+                        ws.send(JSON.stringify({ type: 'tick', data: { timestamp: msg.timestamp * 1000, price: msg.ltp, volume: msg.vol_traded_today } }));
+                    }
+                });
 
-            fyersSocket.on('depth', (depth) => {
-                const snapshot = {
-                    bids: depth.bids.map(d => ({ price: d.price, quantity: d.volume, orders: d.orders })),
-                    asks: depth.asks.map(d => ({ price: d.price, quantity: d.volume, orders: d.orders })),
-                    ohlcv: { open: depth.o, high: depth.h, low: depth.l, close: depth.c, volume: depth.v }
-                };
-                ws.send(JSON.stringify({ type: 'snapshot', data: snapshot }));
-            });
+                fyersSocket.on('depth', (depth) => {
+                    const snapshot = {
+                        bids: depth.bids.map(d => ({ price: d.price, quantity: d.volume, orders: d.orders })),
+                        asks: depth.asks.map(d => ({ price: d.price, quantity: d.volume, orders: d.orders })),
+                        ohlcv: { open: depth.o, high: depth.h, low: depth.l, close: depth.c, volume: depth.v }
+                    };
+                    ws.send(JSON.stringify({ type: 'snapshot', data: snapshot }));
+                });
 
-            fyersSocket.on('error', (err) => console.error('Fyers WebSocket Error:', err));
-            fyersSocket.connect();
+                fyersSocket.on('error', (err) => console.error('Fyers WebSocket Error:', err));
+                fyersSocket.on('close', () => console.log('Fyers WebSocket disconnected.'));
+                
+                fyersSocket.connect();
+            }
+        } catch (err) {
+            console.error('Error processing message:', err);
         }
     });
 
     ws.on('close', () => {
-        if (fyersSocket) fyersSocket.close();
+        console.log('Client disconnected from WebSocket proxy');
+        if (fyersSocket) fyersSocket.disconnect();
     });
 });
 
