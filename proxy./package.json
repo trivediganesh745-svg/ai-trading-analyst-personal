@@ -9,7 +9,8 @@
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.19.2",
-    "fyers-api-v3": "^3.0.3",
+    "fyers-api-v3": "^3.0.2",
     "ws": "^8.17.0"
   }
 }
+
