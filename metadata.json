@@ -1,0 +1,5 @@
+{
+  "name": "Personal AI Trading Analyst",
+  "description": "A frontend-only web application that simulates a personal AI analyst for trading. It uses a mock live market data feed and connects to the Gemini API for analysis, providing trading signals in a clean, two-panel UI.",
+  "requestFramePermissions": []
+}
