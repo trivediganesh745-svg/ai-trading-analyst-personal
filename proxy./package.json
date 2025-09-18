@@ -1,0 +1,15 @@
+{
+  "name": "fyers-proxy-server",
+  "version": "1.0.0",
+  "description": "Proxy for Fyers API and WebSocket",
+  "main": "proxy.js",
+  "scripts": {
+    "start": "node proxy.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "fyers-api-v3": "^3.0.3",
+    "ws": "^8.17.0"
+  }
+}
