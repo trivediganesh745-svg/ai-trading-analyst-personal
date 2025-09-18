@@ -1,117 +1,232 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+
+// Hooks
+import { useFyersAuth } from './hooks/useFyersAuth';
+import { useMarketData } from './hooks/useMarketData';
+import { useGeminiAnalysis } from './hooks/useGeminiAnalysis';
+import { useNewsFeed } from './hooks/useNewsFeed';
+import { useSettings } from './hooks/useSettings';
+import { getSignalExplanation } from './services/geminiService';
+import { usePerformanceAnalytics } from './hooks/usePerformanceAnalytics';
+
+
+// Components
 import { Header } from './components/Header';
 import MarketDataPanel from './components/MarketDataPanel';
 import SignalPanel from './components/SignalPanel';
 import MarketDepthPanel from './components/MarketDepthPanel';
 import SentimentNewsPanel from './components/SentimentNewsPanel';
-import { useMarketData } from './hooks/useMarketData';
-import { useNewsFeed } from './hooks/useNewsFeed';
-import { useGeminiAnalysis } from './hooks/useGeminiAnalysis';
-import { useFyersAuth } from './hooks/useFyersAuth';
-import type { Trade } from './types';
-import { SignalAction, AuthStatus } from './types';
+import TradeModal from './components/TradeModal';
+import SettingsModal from './components/SettingsModal';
+import ExplanationModal from './components/ExplanationModal';
+import PerformanceModal from './components/PerformanceModal';
+import { SettingsIcon } from './components/icons/SettingsIcon';
+import { PerformanceIcon } from './components/icons/PerformanceIcon';
 
+// Types
+import type { AISignal, Tick, Trade } from './types';
+import { AuthStatus } from './types';
+
+// Dummy instruments for the dropdown
 const INSTRUMENTS = {
-  nifty: 'NSE:NIFTY50-INDEX',
-  banknifty: 'NSE:NIFTYBANK-INDEX',
-  reliance: 'NSE:RELIANCE-EQ',
-  tcs: 'NSE:TCS-EQ',
-  sbin: 'NSE:SBIN-EQ',
-  infy: 'NSE:INFY-EQ',
+    'NIFTY 50': 'NSE:NIFTY50-INDEX',
+    'NIFTY BANK': 'NSE:NIFTYBANK-INDEX',
+    'RELIANCE': 'NSE:RELIANCE-EQ',
+    'TCS': 'NSE:TCS-EQ',
 };
-
-const LoginScreen: React.FC<{ onLogin: () => void; error: string | null; authStatus: AuthStatus }> = ({ onLogin, error, authStatus }) => (
-    <div className="flex items-center justify-center h-screen">
-        <div className="text-center bg-gray-800 p-8 rounded-lg shadow-2xl">
-            <h1 className="text-3xl font-bold mb-4 text-white">Gemini AI Trading Bot</h1>
-            <p className="text-gray-400 mb-6">Please log in with your Fyers account to continue.</p>
-            {error && <p className="text-red-400 bg-red-500/10 p-3 rounded-md mb-4">{error}</p>}
-            <button
-                onClick={onLogin}
-                disabled={authStatus === AuthStatus.AUTHENTICATING}
-                className="w-full bg-cyan-500 hover:bg-cyan-400 text-white font-bold py-3 px-6 rounded-md transition duration-300 disabled:bg-gray-600 disabled:cursor-not-allowed"
-            >
-                {authStatus === AuthStatus.AUTHENTICATING ? 'Redirecting to Fyers...' : 'Login with Fyers'}
-            </button>
-        </div>
-    </div>
-);
 
 
 function App() {
-  const [instrument, setInstrument] = useState<string>(INSTRUMENTS.nifty);
-  const [trades, setTrades] = useState<Trade[]>([]);
-  
-  const { authStatus, accessToken, error, login, logout, handleRedirect } = useFyersAuth();
+    // Auth
+    const { authStatus, accessToken, error, login, logout, handleRedirect } = useFyersAuth();
+    const isLoggedIn = authStatus === AuthStatus.AUTHENTICATED;
 
-  // Handle the redirect from Fyers on component mount
-  useEffect(() => {
-    handleRedirect();
-  }, [handleRedirect]);
+    // Settings
+    const { settings, setSettings } = useSettings();
+    const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+    
+    // Core State
+    const [instrument, setInstrument] = useState(INSTRUMENTS['NIFTY 50']);
+    const [isConnected, setIsConnected] = useState(false);
+    
+    // Market Data & Analysis
+    const { ticks, snapshot, connect, disconnect } = useMarketData(instrument, accessToken);
+    const { headlines } = useNewsFeed(instrument, isConnected ? 8000 : undefined);
+    const { signal, isAnalyzing } = useGeminiAnalysis(ticks, headlines, instrument, snapshot?.ohlcv, isConnected);
+    
+    // Trading & Explanation
+    const [tradeLog, setTradeLog] = useState<Trade[]>([]);
+    const [tradeToConfirm, setTradeToConfirm] = useState<Trade | null>(null);
+    const [selectedTradeForExplanation, setSelectedTradeForExplanation] = useState<Trade | null>(null);
+    const [explanation, setExplanation] = useState<string>('');
+    const [isExplanationLoading, setIsExplanationLoading] = useState(false);
 
-  const isConnected = authStatus === AuthStatus.AUTHENTICATED;
+    // Performance Analytics
+    const { metrics, equityCurve } = usePerformanceAnalytics(tradeLog);
+    const [isPerformanceModalOpen, setIsPerformanceModalOpen] = useState(false);
 
-  const { ticks, snapshot, connect: connectMarketData, disconnect: disconnectMarketData } = useMarketData(instrument, accessToken);
-  const { headlines } = useNewsFeed(instrument, isConnected ? 8000 : undefined);
-  const { signal, isAnalyzing } = useGeminiAnalysis(
-    ticks,
-    headlines,
-    instrument,
-    snapshot?.ohlcv,
-    isConnected
-  );
-  
-  const handleConnect = () => {
-      if (accessToken) {
-          connectMarketData();
-      }
-  }
-  
-  const handleDisconnect = () => {
-      disconnectMarketData();
-  }
-  
-  const handleManualTrade = () => {
-    if (signal && ticks.length > 0 && signal.signal !== SignalAction.HOLD) {
-      const latestTick = ticks[ticks.length - 1];
-      const newTrade: Trade = { signal, tick: latestTick };
-      setTrades(prev => [newTrade, ...prev].slice(0, 50));
+    useEffect(() => {
+        handleRedirect();
+    }, [handleRedirect]);
+    
+    const handleConnect = () => {
+        if (isLoggedIn) {
+            connect();
+            setIsConnected(true);
+        }
+    };
+    
+    const handleDisconnect = () => {
+        disconnect();
+        setIsConnected(false);
+    };
+
+    const handleExecuteTrade = (details: { signal: AISignal; tick: Tick }) => {
+        // Capture context at the moment of execution
+        const newTrade: Trade = {
+            ...details,
+            contextTicks: [...ticks],
+            contextHeadlines: [...headlines],
+        };
+        setTradeToConfirm(newTrade);
+    };
+
+    const handleConfirmTrade = () => {
+        if (tradeToConfirm) {
+            setTradeLog(prev => [tradeToConfirm, ...prev].slice(0, 100));
+            setTradeToConfirm(null);
+        }
+    };
+
+    const handleExplainTrade = async (trade: Trade) => {
+        setSelectedTradeForExplanation(trade);
+        setIsExplanationLoading(true);
+        setExplanation('');
+        try {
+            const result = await getSignalExplanation(trade);
+            setExplanation(result);
+        } catch (e) {
+            setExplanation("Sorry, I was unable to retrieve an explanation for this trade.");
+        } finally {
+            setIsExplanationLoading(false);
+        }
+    };
+
+    const closeExplanationModal = () => {
+        setSelectedTradeForExplanation(null);
+        setExplanation('');
+    };
+    
+    const latestTick = useMemo(() => ticks.length > 0 ? ticks[ticks.length - 1] : null, [ticks]);
+
+    if (authStatus === AuthStatus.AUTHENTICATING) {
+        return <div className="min-h-screen bg-gray-900 flex items-center justify-center text-white">Authenticating...</div>;
     }
-  };
 
-  if (!isConnected) {
-    return <LoginScreen onLogin={login} error={error} authStatus={authStatus} />;
-  }
+    if (!isLoggedIn) {
+        return (
+            <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center text-white p-4">
+                <h1 className="text-4xl font-bold mb-4">Gemini AI Trading Bot</h1>
+                <p className="mb-8 text-gray-400">Please log in with your Fyers account to continue.</p>
+                <button
+                    onClick={login}
+                    className="bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-2 px-6 rounded-md transition duration-300"
+                >
+                    Login with Fyers
+                </button>
+                {error && <p className="mt-4 text-red-400 text-sm">{error}</p>}
+            </div>
+        );
+    }
 
-  return (
-    <div className="bg-gray-900 text-white min-h-screen p-4 font-sans flex flex-col">
-      <Header
-        instrument={instrument}
-        setInstrument={setInstrument}
-        instruments={INSTRUMENTS}
-        isConnected={ticks.length > 0} // Base connection on receiving data
-        connect={handleConnect}
-        disconnect={handleDisconnect}
-        isLoggedIn={isConnected}
-        logout={logout}
-      />
-      
-      <main className="flex-grow grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 mt-4">
-        <div className="lg:col-span-1 md:col-span-1">
-          <MarketDataPanel instrument={instrument} ticks={ticks} />
+    return (
+        <div className="min-h-screen bg-gray-900 text-white p-4 font-sans">
+            <Header
+                instrument={instrument}
+                setInstrument={setInstrument}
+                instruments={INSTRUMENTS}
+                isConnected={isConnected}
+                connect={handleConnect}
+                disconnect={handleDisconnect}
+                isLoggedIn={isLoggedIn}
+                logout={logout}
+            />
+
+            <main className="mt-4 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                <div className="md:col-span-1 lg:col-span-1">
+                    <MarketDataPanel instrument={instrument} ticks={ticks} />
+                </div>
+                <div className="md:col-span-1 lg:col-span-1">
+                     <MarketDepthPanel snapshot={snapshot} />
+                </div>
+                <div className="md:col-span-1 lg:col-span-1">
+                     <SentimentNewsPanel headlines={headlines} />
+                </div>
+                 <div className="md:col-span-3 lg:col-span-1">
+                    <SignalPanel 
+                        signal={signal} 
+                        latestTick={latestTick} 
+                        isAnalyzing={isAnalyzing}
+                        onExecuteTrade={handleExecuteTrade}
+                        tradeLog={tradeLog}
+                        onExplainTrade={handleExplainTrade}
+                    />
+                </div>
+            </main>
+            
+            <footer className="fixed bottom-4 right-4 flex gap-3">
+                 <button
+                    onClick={() => setIsPerformanceModalOpen(true)}
+                    className="p-3 bg-gray-700 rounded-full shadow-lg hover:bg-cyan-600 transition"
+                    title="Performance"
+                >
+                    <PerformanceIcon />
+                </button>
+                <button
+                    onClick={() => setIsSettingsModalOpen(true)}
+                    className="p-3 bg-gray-700 rounded-full shadow-lg hover:bg-cyan-600 transition"
+                    title="Settings"
+                >
+                    <SettingsIcon />
+                </button>
+            </footer>
+
+            {tradeToConfirm && (
+                <TradeModal 
+                    isOpen={!!tradeToConfirm}
+                    onClose={() => setTradeToConfirm(null)}
+                    onConfirm={handleConfirmTrade}
+                    tradeDetails={tradeToConfirm}
+                    instrument={instrument.replace(/NSE:|BSE:|-EQ|-INDEX/gi, '')}
+                />
+            )}
+            
+            <SettingsModal 
+                isOpen={isSettingsModalOpen}
+                onClose={() => setIsSettingsModalOpen(false)}
+                onSave={(newSettings) => {
+                    setSettings(newSettings);
+                    setIsSettingsModalOpen(false);
+                }}
+                currentSettings={{ ...settings }}
+            />
+            
+            <ExplanationModal
+                isOpen={!!selectedTradeForExplanation}
+                onClose={closeExplanationModal}
+                trade={selectedTradeForExplanation}
+                explanation={explanation}
+                isLoading={isExplanationLoading}
+            />
+            
+            <PerformanceModal
+                isOpen={isPerformanceModalOpen}
+                onClose={() => setIsPerformanceModalOpen(false)}
+                metrics={metrics}
+                equityCurve={equityCurve}
+            />
         </div>
-        <div className="lg:col-span-1 md:col-span-2">
-          <MarketDepthPanel snapshot={snapshot} />
-        </div>
-        <div className="lg:col-span-1 md:col-span-3">
-          <SentimentNewsPanel headlines={headlines} />
-        </div>
-        <div className="lg:col-span-1 md:col-span-3 lg:row-start-1 lg:col-start-4 md:row-start-auto md:col-start-auto">
-          <SignalPanel signal={signal} isAnalyzing={isAnalyzing} onManualTrade={handleManualTrade} trades={trades} />
-        </div>
-      </main>
-    </div>
-  );
+    );
 }
 
 export default App;
