@@ -45,7 +45,7 @@ export const Header: React.FC<HeaderProps> = ({
           >
             {Object.entries(instruments).map(([key, value]) => (
               <option key={key} value={value}>
-                {cleanInstrumentName(value)}
+                {key}
               </option>
             ))}
           </select>
