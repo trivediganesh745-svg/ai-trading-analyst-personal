@@ -2,7 +2,6 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Personal AI Trading Analyst</title>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -19,11 +18,25 @@
               'cyan-400': '#22d3ee',
               'cyan-500': '#06b6d4',
             },
+             animation: {
+                fadeIn: 'fadeIn 0.3s ease-out forwards',
+                scaleIn: 'scaleIn 0.3s ease-out forwards',
+            },
+            keyframes: {
+                fadeIn: {
+                    '0%': { opacity: 0 },
+                    '100%': { opacity: 1 },
+                },
+                scaleIn: {
+                    '0%': { opacity: 0, transform: 'scale(0.95)' },
+                    '100%': { opacity: 1, transform: 'scale(1)' },
+                },
+            },
           },
         },
       }
     </script>
-  <script type="importmap">
+<script type="importmap">
 {
   "imports": {
     "react": "https://aistudiocdn.com/react@^19.1.1",
