@@ -1,5 +1,5 @@
 {
   "name": "Personal AI Trading Analyst",
-  "description": "A frontend-only web application that simulates a personal AI analyst for trading. It uses a mock live market data feed and connects to the Gemini API for analysis, providing trading signals in a clean, two-panel UI.",
+  "description": "A web application that uses a real Fyers API login to stream live market data via a backend proxy. It connects to the Gemini API for analysis and provides trading signals.",
   "requestFramePermissions": []
 }
