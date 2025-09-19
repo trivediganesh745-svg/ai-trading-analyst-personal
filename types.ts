@@ -1,3 +1,10 @@
+export enum AuthStatus {
+  IDLE = 'IDLE',
+  AUTHENTICATING = 'AUTHENTICATING',
+  AUTHENTICATED = 'AUTHENTICATED',
+  ERROR = 'ERROR',
+}
+
 export interface Tick {
   timestamp: number;
   price: number;
@@ -11,17 +18,17 @@ export interface MarketDepthEntry {
 }
 
 export interface OHLCV {
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
+    open: number;
+    high: number;
+    low: number;
+    close: number; // Previous day's close
+    volume: number;
 }
 
 export interface MarketSnapshot {
-  bids: MarketDepthEntry[];
-  asks: MarketDepthEntry[];
-  ohlcv: OHLCV;
+    bids: MarketDepthEntry[];
+    asks: MarketDepthEntry[];
+    ohlcv: OHLCV;
 }
 
 export type Sentiment = 'Positive' | 'Negative' | 'Neutral';
@@ -33,9 +40,9 @@ export interface NewsHeadline {
 }
 
 export enum SignalAction {
-  BUY = "BUY",
-  SELL = "SELL",
-  HOLD = "HOLD",
+  BUY = 'BUY',
+  SELL = 'SELL',
+  HOLD = 'HOLD',
 }
 
 export interface AISignal {
@@ -47,17 +54,30 @@ export interface AISignal {
 }
 
 export interface Trade {
-    signal: AISignal;
-    tick: Tick;
+  signal: AISignal;
+  tick: Tick;
+  contextTicks: Tick[];
+  contextHeadlines: NewsHeadline[];
 }
 
-// Type for WebSocket event listeners
-export type FyersSocketListener = (data: any) => void;
+export enum TradingStrategy {
+    SCALPING = 'Scalping',
+    SWING = 'Swing Trading',
+    INTRADAY = 'Intraday Momentum',
+}
 
-// Represents the state of the Fyers API authentication process
-export enum AuthStatus {
-  IDLE,
-  AUTHENTICATING,
-  AUTHENTICATED,
-  ERROR,
+export interface PerformanceMetrics {
+    totalTrades: number;
+    winningTrades: number;
+    losingTrades: number;
+    totalNetPL: number;
+    winRate: number;
+    profitFactor: number;
+    averageWin: number;
+    averageLoss: number;
+}
+
+export interface EquityDataPoint {
+    tradeNumber: number;
+    cumulativePL: number;
 }
